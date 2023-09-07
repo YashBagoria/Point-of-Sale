@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderDto.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">pos-spring</a> &gt; <a href="index.source.html" class="el_package">com.increff.pos.dto</a> &gt; <span class="el_source">OrderDto.java</span></div><h1>OrderDto.java</h1><pre class="source lang-java linenums">package com.increff.pos.dto;
+
+import com.increff.pos.model.InvoiceForm;
+import com.increff.pos.model.OrderItem;
+import com.increff.pos.model.OrderItemData;
+import com.increff.pos.model.OrderItemForm;
+import com.increff.pos.pojo.InventoryPojo;
+import com.increff.pos.pojo.OrderItemPojo;
+import com.increff.pos.pojo.OrderPojo;
+import com.increff.pos.service.*;
+import com.increff.pos.util.ConverterUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import javax.transaction.Transactional;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+
+import static com.increff.pos.util.NormalizeUtil.normalize;
+
+@Component
+<span class="fc" id="L32">public class OrderDto {</span>
+    @Value(&quot;${invoice.url}&quot;)
+    private String url;
+    @Autowired
+    OrderService orderService;
+    @Autowired
+    OrderItemService orderItemService;
+    @Autowired
+    ProductService productService;
+    @Autowired
+    InventoryService inventoryService;
+<span class="fc" id="L43">    private int orderId=0;</span>
+    //Creating Order in db
+    @Transactional(rollbackOn = ApiException.class)
+    public int add(List&lt;OrderItemForm&gt; forms) throws ApiException{
+<span class="pc bpc" id="L47" title="1 of 2 branches missed.">        if(forms.size()&lt;1){</span>
+<span class="nc" id="L48">            throw new ApiException(&quot;Empty Order List Not Supported&quot;);</span>
+        }
+<span class="fc" id="L50">        OrderPojo pojo = new OrderPojo();</span>
+<span class="fc" id="L51">        LocalDateTime dateTime = LocalDateTime.now();</span>
+<span class="fc" id="L52">        pojo.setDate_time(dateTime);</span>
+<span class="fc" id="L53">        orderId = orderService.add(pojo);</span>
+<span class="fc" id="L54">        addItems(forms);</span>
+<span class="fc" id="L55">        return orderId;</span>
+    }
+    //Adding orderItems to the Order created
+    @Transactional(rollbackOn = ApiException.class)
+    public void addItems(List&lt;OrderItemForm&gt; formList) throws ApiException{
+<span class="fc bfc" id="L60" title="All 2 branches covered.">        for(OrderItemForm form:formList){</span>
+<span class="fc" id="L61">            normalize(form);</span>
+<span class="fc" id="L62">            int productId = productService.getByBarcode(form.getBarcode()).getId();</span>
+<span class="fc" id="L63">            OrderItemPojo pojo = convert(form, productId);</span>
+<span class="fc" id="L64">            checks(pojo);</span>
+<span class="fc" id="L65">            orderItemService.add(pojo);</span>
+            //Updating in Inventory
+<span class="fc" id="L67">            InventoryPojo inventoryPojo = inventoryService.getCheck(pojo.getProduct_id());</span>
+<span class="fc" id="L68">            int quantity = inventoryPojo.getQuantity() - pojo.getQuantity();</span>
+<span class="fc" id="L69">            inventoryPojo.setQuantity(quantity);</span>
+<span class="fc" id="L70">            inventoryService.update(pojo.getProduct_id(),inventoryPojo);</span>
+<span class="fc" id="L71">        }</span>
+<span class="fc" id="L72">    }</span>
+    //Checks the data while adding data in cart
+    public void checker(OrderItemForm form) throws ApiException{
+<span class="nc" id="L75">        normalize(form);</span>
+<span class="nc" id="L76">        int productId = productService.getByBarcode(form.getBarcode()).getId();</span>
+<span class="nc" id="L77">        OrderItemPojo pojo = convert(form, productId);</span>
+<span class="nc" id="L78">        checks(pojo);</span>
+<span class="nc" id="L79">    }</span>
+    //Getting orderItem for a praticular order
+    public List&lt;OrderItemData&gt; getOrderItemsByOrderId(int order_id) throws ApiException{
+<span class="nc" id="L82">        return orderItemService.getAll(order_id);</span>
+    }
+    //Getting all order from order DB
+    public List&lt;OrderPojo&gt; getListOrder() throws ApiException{
+<span class="nc" id="L86">        return orderService.getAll();</span>
+    }
+    //Getting the invoice in PDF
+    public ResponseEntity&lt;byte[]&gt; getInvoicePDF(int id) throws Exception {
+<span class="nc" id="L90">        InvoiceForm invoiceForm = generateInvoiceForOrder(id);</span>
+<span class="nc" id="L91">        RestTemplate restTemplate = new RestTemplate();</span>
+<span class="nc" id="L92">        byte[] contents = Base64.getDecoder().decode(restTemplate.postForEntity(url, invoiceForm, byte[].class).getBody());</span>
+<span class="nc" id="L93">        HttpHeaders headers = new HttpHeaders();</span>
+<span class="nc" id="L94">        headers.setContentType(MediaType.APPLICATION_PDF);</span>
+<span class="nc" id="L95">        String filename = &quot;invoice.pdf&quot;;</span>
+<span class="nc" id="L96">        headers.setContentDispositionFormData(filename, filename);</span>
+<span class="nc" id="L97">        headers.setCacheControl(&quot;must-revalidate, post-check=0, pre-check=0&quot;);</span>
+<span class="nc" id="L98">        ResponseEntity&lt;byte[]&gt; response = new ResponseEntity&lt;&gt;(contents, headers, HttpStatus.OK);</span>
+<span class="nc" id="L99">        return response;</span>
+    }
+    // Generates InvoiceForm to be used for invoice generation
+    public InvoiceForm generateInvoiceForOrder(int orderId) throws ApiException{
+<span class="nc" id="L103">        InvoiceForm invoiceForm = new InvoiceForm();</span>
+<span class="nc" id="L104">        OrderPojo orderPojo = orderService.getCheck(orderId);</span>
+<span class="nc" id="L105">        invoiceForm.setOrderId(orderId);</span>
+<span class="nc" id="L106">        invoiceForm.setAmount(0.0);</span>
+<span class="nc" id="L107">        invoiceForm.setPlacedDate(orderPojo.getDate_time().toString());</span>
+<span class="nc" id="L108">        List&lt;OrderItem&gt; dataList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L109">        List&lt;OrderItemData&gt; transferList = orderItemService.getAll(orderId);</span>
+<span class="nc" id="L110">        Integer i =0;</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        for(OrderItemData element: transferList){</span>
+<span class="nc" id="L112">            OrderItem orderItem = new OrderItem();</span>
+<span class="nc" id="L113">            i++;</span>
+<span class="nc" id="L114">            orderItem.setOrderItemId(i);</span>
+<span class="nc" id="L115">            orderItem.setProductName(element.getName());</span>
+<span class="nc" id="L116">            orderItem.setQuantity(element.getQuantity());</span>
+<span class="nc" id="L117">            orderItem.setSellingPrice(element.getSelling_price());</span>
+<span class="nc" id="L118">            orderItem.setTotalAmount(10.0);</span>
+<span class="nc" id="L119">            dataList.add(orderItem);</span>
+<span class="nc" id="L120">        }</span>
+<span class="nc" id="L121">        invoiceForm.setOrderItemList(dataList);</span>
+<span class="nc" id="L122">        return invoiceForm;</span>
+    }
+    //Validations
+    public void checks(OrderItemPojo pojo) throws ApiException{
+        //Negative quantity check
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">        if(pojo.getQuantity()&lt;=0){</span>
+<span class="nc" id="L128">            throw new ApiException(&quot;Please enter positive value of quantity&quot;);</span>
+        }
+        //Negative Selling price check
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">        if(pojo.getSelling_price()&lt;0){</span>
+<span class="nc" id="L132">            throw new ApiException(&quot;Selling Price cannot be negative&quot;);</span>
+        }
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">        if(inventoryService.getCheck(pojo.getProduct_id()).getQuantity()&lt;pojo.getQuantity()){</span>
+<span class="nc" id="L135">            throw new ApiException(&quot;Not enough quantity is present in the inventory.&quot;);</span>
+        }
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        if(productService.getCheck(pojo.getProduct_id()).getMrp()&lt;pojo.getSelling_price()){</span>
+<span class="nc" id="L138">            throw new ApiException(&quot;Selling price cannot be more than MRP.&quot;);</span>
+        }
+
+<span class="fc" id="L141">    }</span>
+    private OrderItemPojo convert(OrderItemForm form, int productId) throws ApiException {
+<span class="fc" id="L143">        OrderItemPojo pojo = new OrderItemPojo();</span>
+<span class="fc" id="L144">        pojo.setOrder_id(orderId);</span>
+<span class="fc" id="L145">        pojo.setProduct_id(productId);</span>
+<span class="fc" id="L146">        pojo.setQuantity(form.getQuantity());</span>
+<span class="fc" id="L147">        BigDecimal roundedValue = BigDecimal.valueOf(form.getSelling_price()).setScale(2, RoundingMode.HALF_UP);</span>
+<span class="fc" id="L148">        double sellingPrice = roundedValue.doubleValue();</span>
+<span class="fc" id="L149">        pojo.setSelling_price(sellingPrice);</span>
+<span class="fc" id="L150">        return pojo;</span>
+    }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>

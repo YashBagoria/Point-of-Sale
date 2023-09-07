@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReportsDto.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">pos-spring</a> &gt; <a href="index.source.html" class="el_package">com.increff.pos.dto</a> &gt; <span class="el_source">ReportsDto.java</span></div><h1>ReportsDto.java</h1><pre class="source lang-java linenums">package com.increff.pos.dto;
+
+import com.increff.pos.model.OrderItemData;
+import com.increff.pos.model.ReportsData;
+import com.increff.pos.model.ReportsForm;
+import com.increff.pos.pojo.BrandPojo;
+import com.increff.pos.pojo.OrderPojo;
+import com.increff.pos.pojo.ProductPojo;
+import com.increff.pos.pojo.SchedulerPojo;
+import com.increff.pos.scheduler.SalesScheduler;
+import com.increff.pos.service.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import javax.transaction.Transactional;
+import java.text.DecimalFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Component
+<span class="fc" id="L25">public class ReportsDto {</span>
+    @Autowired
+    private SalesScheduler scheduler;
+    @Autowired
+    SchedulerService schedulerService;
+    @Autowired
+    BrandService brandService;
+    @Autowired
+    ProductService productService;
+    @Autowired
+    InventoryService inventoryService;
+    @Autowired
+    OrderService orderService;
+    @Autowired
+    OrderItemService orderItemService;
+    // Gets Day on Day sales report from DB
+    public List&lt;SchedulerPojo&gt; getScheduledData(){
+<span class="fc" id="L42">        return schedulerService.getAll();</span>
+    }
+    // generates the Day on Day sales report and adds it to db
+    public void generateDailyReport() throws ApiException, InterruptedException {
+<span class="fc" id="L46">        scheduler.createReport();</span>
+<span class="fc" id="L47">    }</span>
+    public List&lt;SchedulerPojo&gt; getByDate(ReportsForm form) throws ApiException {
+<span class="fc" id="L49">        return schedulerService.getByDate(form);</span>
+    }
+    //Generating daily sales report
+    @Transactional(rollbackOn = ApiException.class)
+    public List&lt;ReportsData&gt; getSalesReport(ReportsForm dates) throws ApiException{
+<span class="fc" id="L54">        String startDate = dates.getStartDate() + &quot; 00:00:00&quot;;</span>
+<span class="fc" id="L55">        String endDate = dates.getEndDate() + &quot; 23:59:59&quot;;</span>
+<span class="fc" id="L56">        List&lt;ReportsData&gt; salesReport= new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L57">        HashMap&lt;Integer,ReportsData&gt; map = new HashMap&lt;Integer, ReportsData&gt;();//HashMap&lt;Brand_id, ReportsData&gt;</span>
+<span class="fc" id="L58">        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd HH:mm:ss&quot;);</span>
+<span class="fc" id="L59">        LocalDateTime sDate = LocalDateTime.parse(startDate,formatter);</span>
+<span class="fc" id="L60">        LocalDateTime eDate = LocalDateTime.parse(endDate, formatter);</span>
+<span class="fc" id="L61">        isValidDateTimeRange(sDate, eDate);</span>
+<span class="fc" id="L62">        List&lt;OrderPojo&gt; orderList = orderService.getByDate(sDate, eDate);</span>
+
+        //Iterating through each order
+<span class="fc bfc" id="L65" title="All 2 branches covered.">        for(OrderPojo order : orderList){</span>
+<span class="fc" id="L66">            List&lt;OrderItemData&gt; orderItemList = orderItemService.getAll(order.getId());</span>
+            //Iterating through each orderItem
+<span class="fc bfc" id="L68" title="All 2 branches covered.">            for(OrderItemData orderItem : orderItemList){</span>
+                //we will bet brandCategory id from product pojo
+<span class="fc" id="L70">                int brandId = productService.getCheck(orderItem.getProduct_id()).getBrand_category();</span>
+                //check in map, if not present, create
+<span class="fc" id="L72">                DecimalFormat df = new DecimalFormat(&quot;#.##&quot;);</span>
+<span class="fc bfc" id="L73" title="All 2 branches covered.">                if (!map.containsKey(brandId)) {</span>
+<span class="fc" id="L74">                    BrandPojo brandPojo = brandService.getCheck(brandId);</span>
+<span class="fc" id="L75">                    ReportsData reportsData = new ReportsData();</span>
+<span class="fc" id="L76">                    reportsData.setBrand(brandPojo.getBrand());</span>
+<span class="fc" id="L77">                    reportsData.setCategory(brandPojo.getCategory());</span>
+<span class="fc" id="L78">                    map.put(brandId, reportsData);</span>
+                }
+                // Update the values in reportsData for particular brandId
+<span class="fc" id="L81">                ReportsData reportsData = map.get(brandId);</span>
+                //changing quantity
+<span class="fc" id="L83">                int quantity = reportsData.getQuantity() + orderItem.getQuantity();</span>
+<span class="fc" id="L84">                reportsData.setQuantity(quantity);</span>
+                //changing revenue
+<span class="fc" id="L86">                double revenue = reportsData.getRevenue() + (orderItem.getQuantity()*orderItem.getSelling_price());</span>
+<span class="fc" id="L87">                reportsData.setRevenue(Double.parseDouble(df.format(revenue)));</span>
+                //putting updated values in map
+<span class="fc" id="L89">                map.put(brandId, reportsData);</span>
+<span class="fc" id="L90">            }</span>
+<span class="fc" id="L91">        }</span>
+        // converting data in map to List&lt;ReportsData&gt;
+<span class="fc bfc" id="L93" title="All 2 branches covered.">        for(Map.Entry&lt;Integer, ReportsData&gt; entry : map.entrySet()){</span>
+<span class="fc" id="L94">            ReportsData finalReport = entry.getValue();</span>
+<span class="fc" id="L95">            salesReport.add(finalReport);</span>
+<span class="fc" id="L96">        }</span>
+<span class="fc" id="L97">        return salesReport;</span>
+    }
+    // Generating Inventory Report
+    @Transactional(rollbackOn = ApiException.class)
+    public List&lt;ReportsData&gt; getInventoryReport() throws ApiException{
+<span class="fc" id="L102">        List&lt;ReportsData&gt; inventoryReport = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L103">        List&lt;BrandPojo&gt; brandList = brandService.getAll();</span>
+<span class="fc bfc" id="L104" title="All 2 branches covered.">        for(BrandPojo brand: brandList){</span>
+<span class="fc" id="L105">            int quantity = 0;</span>
+<span class="fc" id="L106">            List&lt;ProductPojo&gt; products = productService.getByBrand(brand.getId());</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">            for(ProductPojo product: products){</span>
+<span class="fc" id="L108">                quantity += inventoryService.getCheck(product.getId()).getQuantity();</span>
+<span class="fc" id="L109">            }</span>
+<span class="fc" id="L110">            ReportsData data = new ReportsData();</span>
+<span class="fc" id="L111">            data.setQuantity(quantity);</span>
+<span class="fc" id="L112">            data.setBrand(brand.getBrand());</span>
+<span class="fc" id="L113">            data.setCategory(brand.getCategory());</span>
+<span class="fc" id="L114">            inventoryReport.add(data);</span>
+<span class="fc" id="L115">        }</span>
+<span class="fc" id="L116">        return inventoryReport;</span>
+    }
+    // helper
+    private void isValidDateTimeRange(LocalDateTime start, LocalDateTime end) throws ApiException{
+<span class="fc bfc" id="L120" title="All 2 branches covered.">        if (start.isAfter(end)) {</span>
+<span class="fc" id="L121">            throw new ApiException(&quot;Start date cannot be after end date&quot;);</span>
+        }
+<span class="fc" id="L123">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.5.201910111838</span></div></body></html>
